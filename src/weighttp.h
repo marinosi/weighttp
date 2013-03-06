@@ -34,6 +34,16 @@
 #define W_ERROR(f, ...) fprintf(stderr, "error: " f "\n", __VA_ARGS__)
 #define UNUSED(x) ( (void)(x) )
 
+/* DPRINTF */
+#ifdef DEBUG
+#define DPRINTF(format, ...)				\
+	fprintf(stderr, "%s [%d] " format "\n", 	\
+	__FUNCTION__, __LINE__, ##__VA_ARGS__)
+#else
+#define DPRINTF(...)
+#endif
+
+
 struct Config;
 typedef struct Config Config;
 struct Stats;

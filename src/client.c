@@ -315,6 +315,7 @@ void client_state_machine(Client *client) {
 static uint8_t client_parse(Client *client, int size) {
 	char *end, *str;
 	uint16_t status_code;
+	int len;
 
 	switch (client->parser_state) {
 		case PARSER_START:
@@ -323,7 +324,9 @@ static uint8_t client_parse(Client *client, int size) {
 			if (client->buffer_offset < sizeof("HTTP/1.1 200\r\n"))
 				return 1;
 
-			if (strncmp(client->buffer, "HTTP/1.1 ", sizeof("HTTP/1.1 ")-1) != 0)
+			len = sizeof("HTTP/1.x ");
+			if ((strncmp(client->buffer, "HTTP/1.0 ", len-1) != 0) &&
+				(strncmp(client->buffer, "HTTP/1.1 ", len-1) != 0))
 				return 0;
 
 			// now the status code
@@ -504,6 +507,10 @@ static uint8_t client_parse(Client *client, int size) {
 			} else {
 				/* not chunked, just consume all data till content-length is reached */
 				client->buffer_offset = 0;
+
+				DPRINTF("Bytes received: %lu Hdr size: %d Content Length: %ld",
+					client->bytes_received, client->header_size,
+					client->content_length);
 
 				if (client->content_length == -1)
 					return 0;
