@@ -26,6 +26,7 @@ struct Client {
 
 	Worker *worker;
 	ev_io sock_watcher;
+	Request *cur_req;
 	uint32_t buffer_offset;
 	uint32_t parser_offset;
 	uint32_t request_offset;

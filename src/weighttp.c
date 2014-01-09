@@ -12,6 +12,18 @@
 
 extern int optind, optopt; /* getopt */
 
+static inline void
+chomp(char *str)
+{
+	size_t len;
+	if (str == NULL)
+		return;
+
+	len = strlen(str);
+	if (str[len - 1] == '\n')
+		str[len - 1] = '\0';
+}
+
 static void show_help(void) {
 	printf("weighttp <options> <url>\n");
 	printf("  -n num   number of requests    (mandatory)\n");
@@ -19,6 +31,7 @@ static void show_help(void) {
 	printf("  -c num   concurrent clients    (default: 1)\n");
 	printf("  -k       keep alive            (default: no)\n");
 	printf("  -6       use ipv6              (default: no)\n");
+	printf("  -f file  file with url list    (default: empty)\n");
 	printf("  -H str   add header to request\n");
 	printf("  -h       show help and exit\n");
 	printf("  -v       show version and exit\n\n");
@@ -234,6 +247,9 @@ int main(int argc, char *argv[]) {
 	uint64_t kbps;
 	char **headers;
 	uint8_t headers_num;
+	char *urlfile, *url, *tmpreq;
+	struct Request *r, *tmp;
+	FILE *url_fp;
 
 	printf("weighttp - a lightweight and simple webserver benchmarking tool\n\n");
 
@@ -246,8 +262,9 @@ int main(int argc, char *argv[]) {
 	config.concur_count = 1;
 	config.req_count = 0;
 	config.keep_alive = 0;
+	urlfile = NULL;
 
-	while ((c = getopt(argc, argv, ":hv6kn:t:c:H:")) != -1) {
+	while ((c = getopt(argc, argv, ":hv6kn:t:c:f:H:")) != -1) {
 		switch (c) {
 			case 'h':
 				show_help();
@@ -276,6 +293,9 @@ int main(int argc, char *argv[]) {
 				headers[headers_num] = optarg;
 				headers_num++;
 				break;
+			case 'f':
+				urlfile = optarg;
+				break;
 			case '?':
 				W_ERROR("unkown option: -%c", optopt);
 				show_help();
@@ -283,7 +303,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	if ((argc - optind) < 1) {
+	if ((argc - optind) < 1 && urlfile == NULL) {
 		W_ERROR("%s", "missing url argument\n");
 		show_help();
 		return 1;
@@ -322,18 +342,73 @@ int main(int argc, char *argv[]) {
 		return 2;
 	}
 
-	if (NULL == (config.request = forge_request(argv[optind], config.keep_alive, &host, &port, headers, headers_num))) {
-		return 1;
+
+	if(urlfile != NULL) {
+		size_t maxurl = 512;
+		url = W_MALLOC(char, maxurl);
+		if (!url) {
+			perror("malloc:");
+			exit(1);
+		}
+
+		url_fp = fopen(urlfile, "r");
+
+		r = W_MALLOC(Request, 1);
+		/* Initialize head */
+		config.requests = r;
+
+		printf("Loading URLs\n");
+		tmp = NULL;
+		while ((getline(&url, &maxurl, url_fp)) != -1) {
+			chomp(url);
+			printf("url: %s\n", url);
+			tmp = r;
+			tmpreq = forge_request(url, config.keep_alive, &host, &port,
+				headers, headers_num);
+			r->request = tmpreq;
+			r->saddr = resolve_host(host, port, use_ipv6);
+			if (!r->saddr) {
+				W_ERROR("%s", "failed to resolve host");
+				return 1;
+			}
+			r->request_size = MMIN(strlen(tmpreq), MAX_REQUEST_LEN);
+			r->next = W_MALLOC(Request, 1);
+			r = r->next;
+			if(!r)
+				W_ERROR("%s", "malloc failed");
+		}
+		free(r);
+		if(tmp)
+			tmp->next = config.requests;
+		free(url);
+    } else {
+		r = W_MALLOC(Request, 1);
+		config.requests = r;
+		printf("url: %s\n", argv[optind]);
+		tmpreq = forge_request(argv[optind], config.keep_alive, &host, &port, headers, headers_num);
+		r->request = tmpreq;
+		r->saddr = resolve_host(host, port, use_ipv6);
+		if (!r->saddr) {
+			W_ERROR("%s", "failed to resolve host");
+			return 1;
+		}
+		r->request_size = MMIN(strlen(tmpreq), MAX_REQUEST_LEN);
+		r->next = r;
 	}
 
-	config.request_size = strlen(config.request);
+	/*if (NULL == (config.request = forge_request(argv[optind], config.keep_alive, &host, &port, headers, headers_num))) {*/
+		/*return 1;*/
+	/*}*/
+
+	/*config.request_size = strlen(config.request);*/
 	//printf("Request (%d):\n==========\n%s==========\n", config.request_size, config.request);
 	//printf("host: '%s', port: %d\n", host, port);
 
 	/* resolve hostname */
-	if(!(config.saddr = resolve_host(host, port, use_ipv6))) {
-		return 1;
-	}
+
+	/*if(!(config.saddr = resolve_host(host, port, use_ipv6))) {*/
+		/*return 1;*/
+	/*}*/
 
 	/* spawn threads */
 	threads = W_MALLOC(pthread_t, config.thread_count);
@@ -429,10 +504,12 @@ int main(int argc, char *argv[]) {
 
 	free(threads);
 	free(workers);
-	free(config.request);
+	/* XXX IM: Free requests list properly */
+	free(config.requests);
+
 	free(host);
 	free(headers);
-	freeaddrinfo(config.saddr);
+	/*freeaddrinfo(config.saddr);*/
 
 	return 0;
 }

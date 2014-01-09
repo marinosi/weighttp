@@ -69,6 +69,7 @@ Client *client_new(Worker *worker) {
 	client->chunked = 0;
 	client->chunk_size = -1;
 	client->chunk_received = 0;
+	client->cur_req = client->worker->config->requests;
 
 	return client;
 }
@@ -115,13 +116,14 @@ static void client_reset(Client *client) {
 	client->chunked = 0;
 	client->chunk_size = -1;
 	client->chunk_received = 0;
+	client->cur_req = client->cur_req->next;
 }
 
 static uint8_t client_connect(Client *client) {
 	//printf("connecting...\n");
 	start:
 
-	if (-1 == connect(client->sock_watcher.fd, client->worker->config->saddr->ai_addr, client->worker->config->saddr->ai_addrlen)) {
+	if (-1 == connect(client->sock_watcher.fd, client->cur_req->saddr->ai_addr, client->cur_req->saddr->ai_addrlen)) {
 		switch (errno) {
 			case EINPROGRESS:
 			case EALREADY:
@@ -157,7 +159,7 @@ static void client_io_cb(struct ev_loop *loop, ev_io *w, int revents) {
 
 void client_state_machine(Client *client) {
 	int r;
-	Config *config = client->worker->config;
+	/*Config *config = client->worker->config;*/
 
 	start:
 	//printf("state: %d\n", client->state);
@@ -166,7 +168,7 @@ void client_state_machine(Client *client) {
 			client->worker->stats.req_started++;
 
 			do {
-				r = socket(config->saddr->ai_family, config->saddr->ai_socktype, config->saddr->ai_protocol);
+				r = socket(client->cur_req->saddr->ai_family, client->cur_req->saddr->ai_socktype, client->cur_req->saddr->ai_protocol);
 			} while (-1 == r && errno == EINTR);
 
 			if (-1 == r) {
@@ -197,7 +199,7 @@ void client_state_machine(Client *client) {
 			}
 		case CLIENT_WRITING:
 			while (1) {
-				r = write(client->sock_watcher.fd, &config->request[client->request_offset], config->request_size - client->request_offset);
+				r = write(client->sock_watcher.fd, &client->cur_req->request[client->request_offset], client->cur_req->request_size - client->request_offset);
 				//printf("write(%d - %d = %d): %d\n", config->request_size, client->request_offset, config->request_size - client->request_offset, r);
 				if (r == -1) {
 					/* error */
@@ -210,7 +212,7 @@ void client_state_machine(Client *client) {
 				} else if (r != 0) {
 					/* success */
 					client->request_offset += r;
-					if (client->request_offset == config->request_size) {
+					if (client->request_offset == client->cur_req->request_size) {
 						/* whole request was sent, start reading */
 						client->state = CLIENT_READING;
 						client_set_events(client, EV_READ);
