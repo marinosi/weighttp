@@ -54,6 +54,12 @@ static void client_set_events(Client *client, int events) {
 	ev_io_start(loop, watcher);
 }
 
+static inline void client_load_request(Client *client) {
+	Request *tmp = client->worker->request_head;
+	client->worker->request_head = tmp->next;
+	client->cur_req = tmp;
+}
+
 Client *client_new(Worker *worker) {
 	Client *client;
 
@@ -69,7 +75,8 @@ Client *client_new(Worker *worker) {
 	client->chunked = 0;
 	client->chunk_size = -1;
 	client->chunk_received = 0;
-	client->cur_req = client->worker->config->requests;
+	client_load_request(client);
+	//client->cur_req = client->worker->config->requests;
 
 	return client;
 }
@@ -116,7 +123,8 @@ static void client_reset(Client *client) {
 	client->chunked = 0;
 	client->chunk_size = -1;
 	client->chunk_received = 0;
-	client->cur_req = client->cur_req->next;
+	client_load_request(client);
+	/*client->cur_req = client->cur_req->next;*/
 }
 
 static uint8_t client_connect(Client *client) {

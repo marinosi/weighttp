@@ -106,7 +106,7 @@ static char *forge_request(char *url, char keep_alive, char **host, uint16_t *po
 	len = strlen(url);
 
 	if ((c = strchr(url, ':'))) {
-		/* found ':' => host:port */ 
+		/* found ':' => host:port */
 		*host = W_MALLOC(char, c - url + 1);
 		memcpy(*host, url, c - url);
 		(*host)[c - url] = '\0';
@@ -226,10 +226,18 @@ uint64_t str_to_uint64(char *str) {
 	return i;
 }
 
+static inline Request *calculate_request_ofs(Request *base, int reqs) {
+
+	for (int index = 0; index < reqs && base ; index++, base = base->next)
+		;
+
+	return base;
+}
+
 int main(int argc, char *argv[]) {
 	Worker **workers;
 	pthread_t *threads;
-	int i;
+	int i, url_counter;
 	char c;
 	int err;
 	struct ev_loop *loop;
@@ -248,7 +256,7 @@ int main(int argc, char *argv[]) {
 	char **headers;
 	uint8_t headers_num;
 	char *urlfile, *url, *tmpreq;
-	struct Request *r, *tmp;
+	struct Request *r, *tmp, *base_request;
 	FILE *url_fp;
 
 	printf("weighttp - a lightweight and simple webserver benchmarking tool\n\n");
@@ -359,9 +367,10 @@ int main(int argc, char *argv[]) {
 
 		printf("Loading URLs\n");
 		tmp = NULL;
+		url_counter = 0;
 		while ((getline(&url, &maxurl, url_fp)) != -1) {
 			chomp(url);
-			printf("url: %s\n", url);
+			/*printf("url: %s\n", url);*/
 			tmp = r;
 			tmpreq = forge_request(url, config.keep_alive, &host, &port,
 				headers, headers_num);
@@ -376,11 +385,13 @@ int main(int argc, char *argv[]) {
 			r = r->next;
 			if(!r)
 				W_ERROR("%s", "malloc failed");
+			url_counter++;
 		}
 		free(r);
 		if(tmp)
 			tmp->next = config.requests;
 		free(url);
+		printf("Loaded %d URLs\n", url_counter);
     } else {
 		r = W_MALLOC(Request, 1);
 		config.requests = r;
@@ -422,6 +433,7 @@ int main(int argc, char *argv[]) {
 	memset(&stats, 0, sizeof(stats));
 	ts_start = ev_time();
 
+	base_request = config.requests;
 	for (i = 0; i < config.thread_count; i++) {
 		uint64_t reqs = config.req_count / config.thread_count;
 		uint16_t concur = config.concur_count / config.thread_count;
@@ -441,7 +453,7 @@ int main(int argc, char *argv[]) {
 			rest_req -= diff;
 		}
 		printf("spawning thread #%d: %"PRIu16" concurrent requests, %"PRIu64" total requests\n", i+1, concur, reqs);
-		workers[i] = worker_new(i+1, &config, concur, reqs);
+		workers[i] = worker_new(i+1, &config, concur, reqs, base_request);
 
 		if (!(workers[i])) {
 			W_ERROR("%s", "failed to allocate worker or client");
@@ -454,6 +466,8 @@ int main(int argc, char *argv[]) {
 			W_ERROR("failed spawning thread (%d)", err);
 			return 2;
 		}
+
+		base_request = calculate_request_ofs(base_request, reqs);
 	}
 
 	for (i = 0; i < config.thread_count; i++) {
@@ -505,7 +519,14 @@ int main(int argc, char *argv[]) {
 	free(threads);
 	free(workers);
 	/* XXX IM: Free requests list properly */
+	r = config.requests->next;
+	while (r != NULL && r != config.requests) {
+		tmp = r->next;
+		free(r);
+		r = tmp;
+	}
 	free(config.requests);
+
 
 	free(host);
 	free(headers);

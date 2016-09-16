@@ -10,7 +10,7 @@
 
 #include "weighttp.h"
 
-Worker *worker_new(uint8_t id, Config *config, uint16_t num_clients, uint64_t num_requests) {
+Worker *worker_new(uint8_t id, Config *config, uint16_t num_clients, uint64_t num_requests, Request *base_request) {
 	Worker *worker;
 	uint16_t i;
 
@@ -22,6 +22,7 @@ Worker *worker_new(uint8_t id, Config *config, uint16_t num_clients, uint64_t nu
 	worker->num_clients = num_clients;
 	worker->stats.req_todo = num_requests;
 	worker->progress_interval = num_requests / 10;
+	worker->request_head = base_request;
 
 	if (worker->progress_interval == 0)
 		worker->progress_interval = 1;
