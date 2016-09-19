@@ -354,12 +354,18 @@ int main(int argc, char *argv[]) {
 	if(urlfile != NULL) {
 		size_t maxurl = 512;
 		url = W_MALLOC(char, maxurl);
-		if (!url) {
+		if (url == NULL) {
 			perror("malloc:");
-			exit(1);
+			W_ERROR("%s", "could not open file\n");
+			return 3;
 		}
 
 		url_fp = fopen(urlfile, "r");
+		if (url_fp == NULL) {
+			W_ERROR("%s", "could not open file\n");
+			free(url);
+			return 4;
+		}
 
 		r = W_MALLOC(Request, 1);
 		/* Initialize head */
@@ -518,7 +524,7 @@ int main(int argc, char *argv[]) {
 
 	free(threads);
 	free(workers);
-	/* XXX IM: Free requests list properly */
+	/* Release the cyclic list */
 	r = config.requests->next;
 	while (r != NULL && r != config.requests) {
 		tmp = r->next;
